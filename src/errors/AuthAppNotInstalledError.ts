@@ -20,11 +20,15 @@
  * SOFTWARE.
  */
 
-export default Object.freeze({
-  VERSION:                          "1.0.1",
-  EXTENSION_HANDSHAKE_TIMEOUT:      1000,          // 1 second
-  NATIVE_APP_HANDSHAKE_TIMEOUT:     5 * 1000,      // 5 seconds
-  DEFAULT_USER_INTERACTION_TIMEOUT: 2 * 60 * 1000, // 2 minutes
-  DEFAULT_SERVER_REQUEST_TIMEOUT:   20 * 1000,     // 20 seconds
-  AUTH_APP_INTENT_URL_BASE:         "authapp://start/",
-});
+import ErrorCode from "./ErrorCode";
+
+export default class AuthAppNotInstalledError extends Error {
+  public code: ErrorCode;
+
+  constructor(message = "Authentication app is not installed. Install it from: https://github.com/TanelOrumaa/Estonian-ID-card-mobile-authenticator-POC/tree/main/MobileAuthApp") {
+    super(message);
+
+    this.name = this.constructor.name;
+    this.code = ErrorCode.AUTH_APP_NOT_INSTALLED;
+  }
+}

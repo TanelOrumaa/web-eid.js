@@ -28,6 +28,20 @@ import ActionPendingError from "../errors/ActionPendingError";
 import ActionTimeoutError from "../errors/ActionTimeoutError";
 import ContextInsecureError from "../errors/ContextInsecureError";
 import ExtensionUnavailableError from "../errors/ExtensionUnavailableError";
+import IntentUrl from "../models/IntentUrl";
+import AuthAppNotInstalledError from "../errors/AuthAppNotInstalledError";
+import Action from "../models/Action";
+import { QrCode } from "../models/qrcode/QrCode";
+import { Ecc } from "../models/qrcode/Ecc";
+import { toSvgString } from "../utils/qrcode";
+import ProtocolInsecureError from "../errors/ProtocolInsecureError";
+import MissingParameterError from "../errors/MissingParameterError";
+import * as https from "https";
+import * as http from "http";
+import ServerTimeoutError from "../errors/ServerTimeoutError";
+import ServerRejectedError from "../errors/ServerRejectedError";
+import { isAndroidDevice } from "../web-eid";
+import HttpResponse from "../models/HttpResponse";
 
 export default class WebExtensionService {
   private queue: PendingMessage[] = [];
@@ -39,10 +53,10 @@ export default class WebExtensionService {
   private receive(event: { data: Message }): void {
     if (!/^web-eid:/.test(event.data?.action)) return;
 
-    const message       = event.data;
-    const suffix        = message.action?.match(/success$|failure$|ack$/)?.[0];
+    const message = event.data;
+    const suffix = message.action?.match(/success$|failure$|ack$/)?.[0];
     const initialAction = this.getInitialAction(message.action);
-    const pending       = this.getPendingMessage(initialAction);
+    const pending = this.getPendingMessage(initialAction);
 
     if (suffix === "ack") {
       console.log("ack message", message);
@@ -89,23 +103,178 @@ export default class WebExtensionService {
 
       pending.promise = new Promise((resolve, reject) => {
         pending.resolve = resolve;
-        pending.reject  = reject;
+        pending.reject = reject;
       });
 
-      pending.ackTimer = setTimeout(
+      pending.ackTimer = window.setTimeout(
         () => this.onAckTimeout(pending),
         config.EXTENSION_HANDSHAKE_TIMEOUT,
       );
 
-      pending.replyTimer = setTimeout(
+      pending.replyTimer = window.setTimeout(
         () => this.onReplyTimeout(pending),
         timeout,
       );
 
-      window.postMessage(message, "*");
+      this.publishMessage(message, timeout);
 
       return pending.promise as Promise<T>;
     }
+  }
+
+  publishMessage(message: Message, timeout: number): void {
+    if (message.useAuthApp && message.useAuthApp == true) {
+      if (isAndroidDevice()) {
+        // Launch auth app.
+        console.log("Launching auth app");
+        this.launchAuthApp(message);
+      } else {
+        // Display QR code.
+        this.displayQRCode(message);
+      }
+      console.log("Polling for success.");
+      this.pollForLoginSuccess(message, timeout).then(
+        (req) => {
+          req.on("response", (res) => {
+            if (res.statusCode == 200) {
+              console.log(res.statusCode);
+              window.postMessage({ action: this.getRelevantSuccessAction(message) }, location.origin);
+            } else {
+              this.removeFromQueue(message.action);
+              return Promise.reject(new ServerRejectedError("Server rejected the authentication."));
+            }
+          }).on("error", () => {
+            this.removeFromQueue(message.action);
+            return Promise.reject(new ServerRejectedError("Server unreachable."));
+          });
+        }
+      );
+    } else {
+      // Use ID-card reader.
+      window.postMessage(message, "*");
+    }
+
+  }
+
+  launchAuthApp(message: Message): void {
+    const intentUrl = new IntentUrl(message);
+
+    // Since deeplink gives no feedback about app launch, check if browser window lost focus.
+    document.addEventListener("visibilitychange", function sendAckMessage(this: WebExtensionService) {
+      if (document.hidden) {
+        // Send acknowledge message to itself.
+        window.postMessage({ action: this.getRelevantAckAction(message) }, location.origin);
+
+        setTimeout(() => document.removeEventListener("visibilitychange", sendAckMessage), config.EXTENSION_HANDSHAKE_TIMEOUT);
+      }
+    }.bind(this));
+
+    window.location.href = intentUrl.toString();
+  }
+
+  displayQRCode(message: Message): void {
+    const intentUrl = new IntentUrl(message);
+
+    const qrCode = QrCode;
+
+    const qr0 = qrCode.encodeText(intentUrl.toString(), Ecc.MEDIUM);
+
+    const svg = toSvgString(qr0, 24, "#FFF", "#000");
+
+    const canvas = document.getElementById("canvas");
+    if (canvas) {
+      canvas.innerHTML = svg;
+    }
+    window.postMessage({ action: this.getRelevantAckAction(message) }, location.origin);
+  }
+
+  async pollForLoginSuccess(message: Message, timeout: number) : Promise<http.ClientRequest> {
+
+    if (message.getAuthSuccessUrl) {
+      if (!message.getAuthSuccessUrl.startsWith("https://")) {
+        throw new ProtocolInsecureError(`HTTPS required for getAuthSuccessUrl ${message.getAuthSuccessUrl}`);
+      }
+
+      console.log("Polling for success.");
+
+      const headers: http.OutgoingHttpHeaders = message.headers;
+
+      const url = new URL(message.getAuthSuccessUrl);
+
+      const host = url.hostname;
+      const port = url.port;
+      const path = url.pathname;
+
+      const options: http.RequestOptions = {
+        host:    host,
+        port:    port,
+        path:    path,
+        method:  "GET",
+        headers: headers,
+        timeout: timeout,
+      };
+
+      return https.get(options, (res) => {
+        console.log("Polling request answered.");
+      }).on("data", (data) => {
+        console.log("DATA: " + data);
+      }).on("error", () => {
+        throw new ServerRejectedError("Authentication failed.");
+      }).on("timeout", () => {
+        throw new ServerTimeoutError("Server didn't respond in time");
+      });
+    } else {
+      throw new MissingParameterError("getAuthSuccessUrl missing for Android auth app authentication option.");
+    }
+  }
+
+  async throwAfterTimeout(milliseconds: number, error: Error): Promise<void> {
+    await this.sleep(milliseconds);
+    throw error;
+  }
+
+  async sleep(milliseconds: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(), milliseconds);
+    });
+  }
+
+  getRelevantAckAction(message: Message) : Action {
+    let ackAction;
+    switch (message.action) {
+      case Action.AUTHENTICATE:
+        ackAction = Action.AUTHENTICATE_ACK;
+        break;
+      case Action.SIGN:
+        ackAction = Action.SIGN_ACK;
+        break;
+      case Action.STATUS:
+        ackAction = Action.STATUS_ACK;
+        break;
+      default:
+        ackAction = Action.STATUS_ACK;
+        break;
+    }
+    return ackAction;
+  }
+
+  getRelevantSuccessAction(message: Message) : Action {
+    let ackAction;
+    switch (message.action) {
+      case Action.AUTHENTICATE:
+        ackAction = Action.AUTHENTICATE_SUCCESS;
+        break;
+      case Action.SIGN:
+        ackAction = Action.SIGN_SUCCESS;
+        break;
+      case Action.STATUS:
+        ackAction = Action.STATUS_SUCCESS;
+        break;
+      default:
+        ackAction = Action.STATUS_SUCCESS;
+        break;
+    }
+    return ackAction;
   }
 
   onReplyTimeout(pending: PendingMessage): void {
@@ -117,8 +286,13 @@ export default class WebExtensionService {
 
   onAckTimeout(pending: PendingMessage): void {
     console.log("onAckTimeout", pending.message.action);
-    pending.reject?.(new ExtensionUnavailableError());
+    if (pending.message.useAuthApp && pending.message.useAuthApp == true) {
+      pending.reject?.(new AuthAppNotInstalledError());
+    } else {
+      pending.reject?.(new ExtensionUnavailableError());
+    }
 
+    this.removeFromQueue(pending.message.action);
     clearTimeout(pending.replyTimer);
   }
 

@@ -57,6 +57,37 @@ export default interface AuthenticateOptions {
   postAuthTokenUrl: string;
 
   /**
+   * Authentication success GET request URL
+   *
+   * This URL should accept a GET request which contains the headers set in the headers object.
+   *
+   * If backend has received the valid authentication token from the Android authentication app, successful login web-
+   * page should be returned.
+   *
+   * If the token was not received by the backend or if the token was invalid, the server should respond with an
+   * appropriate HTTP error status code and an optional JSON payload.
+   */
+  getAuthSuccessUrl?: string;
+
+  /**
+   * Boolean to decide which application to use for the authentication request.
+   *
+   * If true, the request will be sent to the Android authentication app
+   * https://github.com/TanelOrumaa/Estonian-ID-card-mobile-authenticator-POC/tree/main/MobileAuthApp
+   *
+   * If false, the request will be sent to the browser plugin (to use with ID-card reader).
+   *
+   * If not specified, false is assumed.
+   */
+  useAuthApp?: boolean;
+
+  /**
+   * String value which can be displayed to the user in the Android authentication app. If not specified, nothing will
+   * be displayed.
+   */
+  applicationName?: string;
+
+  /**
    * Headers to append to the requests.
    */
   headers?: {

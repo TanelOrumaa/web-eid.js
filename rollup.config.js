@@ -1,4 +1,5 @@
 import { terser } from "rollup-plugin-terser";
+import nodePolyfills from "rollup-plugin-polyfill-node";
 
 export default {
   input: "./dist/node/web-eid.js",
@@ -31,8 +32,18 @@ export default {
       plugins:   [terser()],
     },
     {
-      file:   "dist/es/web-eid.js",
-      format: "es",
+      file:    "dist/es/web-eid.js",
+      format:  "es",
+      globals: {
+        qrcode: "qrcode",
+      },
     },
+  ],
+  external: ["qrcode"],
+  plugins:  [
+    nodePolyfills(
+      {
+        include: ["https"],
+      }),
   ],
 };

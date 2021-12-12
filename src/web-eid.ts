@@ -130,6 +130,10 @@ export async function sign(options: SignOptions): Promise<HttpResponse> {
   return result.response;
 }
 
+export function isAndroidDevice(): boolean {
+  return navigator.userAgent.toLowerCase().indexOf("android") > -1;
+}
+
 export { Action, ErrorCode };
 export { hasVersionProperties } from "./utils/version";
 export { config };

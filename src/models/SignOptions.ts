@@ -39,6 +39,19 @@ export default interface SignOptions {
   postFinalizeSigningUrl: string;
 
   /**
+   * String value, like the name of the webpage or service, which can be displayed to the user in the Android
+   * authentication app. If not specified, nothing will be displayed to the user.
+   */
+  applicationName?: string;
+
+  /**
+   * String value, which describes the action the user is about to do. This will be displayed to the user in the Android
+   * authentication app when the user is in the process of giving the signature. If not specified, nothing will be
+   * displayed to the user.
+   */
+  actionDescription?: string;
+
+  /**
    * Headers to append to the requests.
    */
   headers?: {
