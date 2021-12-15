@@ -140,9 +140,12 @@ export default class WebExtensionService {
               console.log(res.statusCode);
               window.postMessage({ action: this.getRelevantSuccessAction(message) }, location.origin);
             } else {
+              this.displayRelevantError(res.statusCode);
               this.removeFromQueue(message.action);
-              return Promise.reject(new ServerRejectedError("Server rejected the authentication."));
+              // return Promise.reject(new ServerRejectedError("Server rejected the authentication."));
             }
+          }).on("data", (data) => {
+            console.log("data: " + data);
           }).on("error", () => {
             this.removeFromQueue(message.action);
             return Promise.reject(new ServerRejectedError("Server unreachable."));
@@ -188,7 +191,7 @@ export default class WebExtensionService {
     window.postMessage({ action: this.getRelevantAckAction(message) }, location.origin);
   }
 
-  async pollForLoginSuccess(message: Message, timeout: number) : Promise<http.ClientRequest> {
+  async pollForLoginSuccess(message: Message, timeout: number): Promise<http.ClientRequest> {
 
     if (message.getAuthSuccessUrl) {
       if (!message.getAuthSuccessUrl.startsWith("https://")) {
@@ -214,14 +217,8 @@ export default class WebExtensionService {
         timeout: timeout,
       };
 
-      return https.get(options, (res) => {
+      return https.get(options, () => {
         console.log("Polling request answered.");
-      }).on("data", (data) => {
-        console.log("DATA: " + data);
-      }).on("error", () => {
-        throw new ServerRejectedError("Authentication failed.");
-      }).on("timeout", () => {
-        throw new ServerTimeoutError("Server didn't respond in time");
       });
     } else {
       throw new MissingParameterError("getAuthSuccessUrl missing for Android auth app authentication option.");
@@ -239,7 +236,7 @@ export default class WebExtensionService {
     });
   }
 
-  getRelevantAckAction(message: Message) : Action {
+  getRelevantAckAction(message: Message): Action {
     let ackAction;
     switch (message.action) {
       case Action.AUTHENTICATE:
@@ -258,7 +255,7 @@ export default class WebExtensionService {
     return ackAction;
   }
 
-  getRelevantSuccessAction(message: Message) : Action {
+  getRelevantSuccessAction(message: Message): Action {
     let ackAction;
     switch (message.action) {
       case Action.AUTHENTICATE:
@@ -275,6 +272,25 @@ export default class WebExtensionService {
         break;
     }
     return ackAction;
+  }
+
+  displayRelevantError(errorCode: number | undefined): void {
+    switch (errorCode) {
+      case 400:
+        alert("Parameter missing.");
+        return;
+      case 408:
+        alert("User actions timed out.");
+        return;
+      case 444:
+        alert("User cancelled action.");
+        return;
+      case 449:
+        alert("Invalid PIN or CAN.");
+        return;
+      default:
+        alert("Authentication failed.");
+    }
   }
 
   onReplyTimeout(pending: PendingMessage): void {
