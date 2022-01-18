@@ -41,6 +41,7 @@ import ActionTimeoutError from "../errors/ActionTimeoutError";
 import VersionInvalidError from "../errors/VersionInvalidError";
 import ServerTimeoutError from "../errors/ServerTimeoutError";
 import UnknownError from "../errors/UnknownError";
+import UserPinError from "../errors/UserPinError";
 
 const errorCodeToErrorClass: {[key: string]: any} = {
   [ErrorCode.ERR_WEBEID_ACTION_PENDING]:          ActionPendingError,
@@ -62,6 +63,7 @@ const errorCodeToErrorClass: {[key: string]: any} = {
   [ErrorCode.ERR_WEBEID_USER_TIMEOUT]:            UserTimeoutError,
   [ErrorCode.ERR_WEBEID_VERSION_INVALID]:         VersionInvalidError,
   [ErrorCode.ERR_WEBEID_VERSION_MISMATCH]:        VersionMismatchError,
+  [ErrorCode.ERR_WEBEID_USER_PIN_ERROR]:          UserPinError,
 };
 
 export function serializeError(error: any): any {
@@ -93,7 +95,6 @@ export function serializeError(error: any): any {
 
 export function deserializeError(errorObject: any): any {
   let error;
-
   if (typeof errorObject.code == "string" && errorObject.code in errorCodeToErrorClass) {
     const CustomError = errorCodeToErrorClass[errorObject.code];
 

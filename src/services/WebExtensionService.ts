@@ -20,7 +20,7 @@
  * SOFTWARE.
  */
 
-import { deserializeError } from "../utils/errorSerializer";
+import {deserializeError} from "../utils/errorSerializer";
 import config from "../config";
 import Message from "../models/Message";
 import PendingMessage from "../models/PendingMessage";
@@ -31,17 +31,20 @@ import ExtensionUnavailableError from "../errors/ExtensionUnavailableError";
 import IntentUrl from "../models/IntentUrl";
 import AuthAppNotInstalledError from "../errors/AuthAppNotInstalledError";
 import Action from "../models/Action";
-import { QrCode } from "../models/qrcode/QrCode";
-import { Ecc } from "../models/qrcode/Ecc";
-import { toSvgString } from "../utils/qrcode";
+import {QrCode} from "../models/qrcode/QrCode";
+import {Ecc} from "../models/qrcode/Ecc";
+import {toSvgString} from "../utils/qrcode";
 import ProtocolInsecureError from "../errors/ProtocolInsecureError";
 import MissingParameterError from "../errors/MissingParameterError";
 import * as https from "https";
 import * as http from "http";
-import ServerTimeoutError from "../errors/ServerTimeoutError";
+import {isAndroidDevice} from "../web-eid";
+import ErrorCode from "../errors/ErrorCode";
 import ServerRejectedError from "../errors/ServerRejectedError";
-import { isAndroidDevice } from "../web-eid";
-import HttpResponse from "../models/HttpResponse";
+import ServerTimeoutError from "../errors/ServerTimeoutError";
+import UserCancelledError from "../errors/UserCancelledError";
+import UserPinError from "../errors/UserPinError";
+import UnknownError from "../errors/UnknownError";
 
 export default class WebExtensionService {
   private queue: PendingMessage[] = [];
@@ -137,18 +140,36 @@ export default class WebExtensionService {
         (req) => {
           req.on("response", (res) => {
             if (res.statusCode == 200) {
-              console.log(res.statusCode);
+              console.log("Polling request successful: " + res.statusCode);
               window.postMessage({ action: this.getRelevantSuccessAction(message) }, location.origin);
             } else {
-              this.displayRelevantError(res.statusCode);
-              this.removeFromQueue(message.action);
-              // return Promise.reject(new ServerRejectedError("Server rejected the authentication."));
+              console.log("Polling request unsuccessful: " + res.statusCode);
+              let error;
+              switch (res.statusCode) {
+                case 400:
+                  error = new MissingParameterError("A parameter is missing!");
+                  break;
+                case 403:
+                  error = new ServerRejectedError();
+                  break;
+                case 408:
+                  error = new ServerTimeoutError();
+                  break;
+                case 444:
+                  error = new UserCancelledError();
+                  break;
+                case 449:
+                  error = new UserPinError();
+                  break;
+                default:
+                  error = new UnknownError("Error code: " + res.statusCode);
+              }
+
+              window.postMessage({ action: this.getRelevantErrorAction(message), error: error }, location.origin);
             }
-          }).on("data", (data) => {
-            console.log("data: " + data);
-          }).on("error", () => {
-            this.removeFromQueue(message.action);
-            return Promise.reject(new ServerRejectedError("Server unreachable."));
+          }).on("error", (err) => {
+            console.log("Server unreachable: " + err);
+            window.postMessage( { action: this.getRelevantErrorAction(message), error: new ServerRejectedError() }, location.origin);
           });
         }
       );
@@ -218,7 +239,7 @@ export default class WebExtensionService {
       };
 
       return https.get(options, () => {
-        console.log("Polling request answered.");
+        console.log("Polling request response received.");
       });
     } else {
       throw new MissingParameterError("getAuthSuccessUrl missing for Android auth app authentication option.");
@@ -274,23 +295,23 @@ export default class WebExtensionService {
     return ackAction;
   }
 
-  displayRelevantError(errorCode: number | undefined): void {
-    switch (errorCode) {
-      case 400:
-        alert("Parameter missing.");
-        return;
-      case 408:
-        alert("User actions timed out.");
-        return;
-      case 444:
-        alert("User cancelled action.");
-        return;
-      case 449:
-        alert("Invalid PIN or CAN.");
-        return;
+  getRelevantErrorAction(message: Message): Action {
+    let rejectAction;
+    switch (message.action) {
+      case Action.AUTHENTICATE:
+        rejectAction = Action.AUTHENTICATE_FAILURE;
+        break;
+      case Action.SIGN:
+        rejectAction = Action.SIGN_FAILURE;
+        break;
+      case Action.STATUS:
+        rejectAction = Action.STATUS_FAILURE;
+        break;
       default:
-        alert("Authentication failed.");
+        rejectAction = Action.STATUS_FAILURE;
+        break;
     }
+    return rejectAction;
   }
 
   onReplyTimeout(pending: PendingMessage): void {
@@ -331,4 +352,6 @@ export default class WebExtensionService {
       pending.message.action !== action
     ));
   }
+
+
 }

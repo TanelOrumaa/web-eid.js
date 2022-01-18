@@ -22,13 +22,13 @@
 
 import ErrorCode from "./ErrorCode";
 
-export default class AuthAppNotInstalledError extends Error {
+export default class UserPinError extends Error {
   public code: ErrorCode;
 
-  constructor(message = "Authentication app is not installed. Install it from: https://github.com/TanelOrumaa/Estonian-ID-card-mobile-authenticator-POC/tree/main/MobileAuthApp") {
+  constructor(message = "User inserted invalid CAN or PIN code.") {
     super(message);
 
     this.name = this.constructor.name;
-    this.code = ErrorCode.ERR_WEBEID_AUTH_APP_NOT_INSTALLED;
+    this.code = ErrorCode.ERR_WEBEID_USER_PIN_ERROR;
   }
 }
